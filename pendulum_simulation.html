@@ -1,0 +1,100 @@
+from vpython import *
+#Web VPython 3.2
+
+# 1. basic setting
+amp1 = 5 
+eq1 = vector(0, 0, 0)     # 中心統一在 X=0
+pivot1 = vector(-9, 0, 0) # 彈簧固定端在 X=-9
+
+# setup windows for simulation scene
+scene = canvas(width=600, height=400, center=vector(0, 0, 0), background=color.white)
+scene.camera.rotate(angle=-20*pi/180, axis=vec(2, -1, 0), origin=vec(0, 0, 0))
+
+# setup geometry environment (配合多個積木，把地板加寬一點)
+wall = box(pos=vector(-9-1/2, 0, 0), size=vector(1, 12, 10), color=color.yellow, texture=textures.granite)
+floor = box(pos=vector(-3, -2.5, 0), size=vector(20, 0.2, 10), color=color.white)
+
+# 2. create four cases (name, color, spring color, 阻尼係數 b,place of Z axis)
+# let four cases spread out at z axis（Z = 3, 1, -1, -3），這樣它們就不會重疊在一起
+cases = [
+    {"name": "(a) Undamped", "block_c": color.black, "spring_c": color.red,   "b": 0.0, "z": 3},
+    {"name": "(b) Underdamped", "block_c": color.green, "spring_c": color.blue,  "b": 0.1, "z": 1},
+    {"name": "(c) Critical",    "block_c": color.blue,  "spring_c": color.black, "b": 2.0, "z": -1}, # 臨界阻尼 b 較大
+    {"name": "(d) Overdamped",  "block_c": color.red,   "spring_c": color.green, "b": 5.0, "z": -3}  # 過阻尼 b 最大
+]
+
+# 3. 根據列表，批量生成 VPython 物件與繪圖線
+blocks = []
+springs = []
+b_values = []
+f_curves = []
+
+#graph 1：four Amplitude vs t (draw in a graph)
+gd = graph(x=650, y=0, width=500, height=250, xmax=50, ymax=6, ymin=-6, title="Oscillation Comparison",
+           xtitle="t(sec)", ytitle="amplitude(m)", background=vector(0.8, 0.8, 0.8))
+
+# 圖表 2：專屬 (b) 小題的能量與包絡線圖
+gd_k = graph(x=650, y=260, width=500, height=250, xmax=50, title="Ek and Ev for (b)", 
+             xtitle="t(sec)", ytitle="Energy(J)", background=vector(0.8, 0.8, 0.8))
+
+f_ep = gdots(graph=gd, color=color.yellow, radius=1, label="(b) + envelope")
+f_en = gdots(graph=gd, color=color.yellow, radius=1, label="(b) - envelope")
+ek1 = gcurve(graph=gd_k, color=color.red, label="Ek_(b)")
+ev1 = gcurve(graph=gd_k, color=color.blue, label="Ev_(b)")
+
+# 用迴圈一次建好 4 個系統
+for cases in cases:
+    # 每個系統的平衡點與固定端在 Z 軸上錯開
+    b_eq = vector(eq1.x, eq1.y, cases["z"])
+    b_piv = vector(pivot1.x, pivot1.y, cases["z"])
+    
+    # 建立積木與彈簧
+    blk = box(pos=vector(b_eq.x + amp1, b_eq.y, b_eq.z), velocity=vector(0, 0, 0), size=vector(1, 1, 1), mass=1.0, color=cases["block_c"])
+    spr = helix(pos=b_piv, axis=blk.pos - b_piv, radius=0.4, constant=1, thickness=0.1, coils=20, color=cases["spring_c"])
+    
+    blocks.append(blk)
+    springs.append(spr)
+    b_values.append(cases["b"])
+    
+    # 建立各自在圖表 1 的震盪曲線
+    f_curves.append(gcurve(graph=gd, color=cases["block_c"], label=cases["name"]))
+
+# 4. 物理計算函式 (完全保留你原本的寫法，只是加上索引 i 來指定哪一個物體)
+def acceleration(i):
+    b_eq = vector(eq1.x, eq1.y, blocks[i].pos.z) # 該物體對應的平衡位置
+    F_H = -(blocks[i].pos - b_eq) * (springs[i].constant / blocks[i].mass) - b_values[i] * blocks[i].velocity
+    acc = F_H / blocks[i].mass
+    return acc
+
+# 畫出 (b) 小題的包絡線 (b_values[1] 代表第二個 case，即 underdamped)
+for i in arange(0, 50, 1):
+    f_ep.plot(pos=(i, amp1 * exp(-i * b_values[1] / (2 * blocks[1].mass))))
+    f_en.plot(pos=(i, -amp1 * exp(-i * b_values[1] / (2 * blocks[1].mass))))
+
+# 5. 動態模擬迴圈
+t = 0
+dt = 0.01
+while (t < 50):
+    if t == 0:
+        sleep(2) # 檢查初始位置
+    else:
+        rate(200)
+    
+    # 使用迴圈「同時」更新 4 個系統的狀態
+    for i in range(4):
+        acc = acceleration(i)
+        blocks[i].velocity = blocks[i].velocity + acc * dt
+        blocks[i].pos = blocks[i].pos + blocks[i].velocity * dt
+        springs[i].axis = blocks[i].pos - springs[i].pos
+        
+        # 繪製各自的 Amplitude vs t
+        f_curves[i].plot(pos=(t, blocks[i].pos.x))
+        
+        # 如果是 (b) 小題 (i == 1)，額外繪製能量圖
+        if i == 1:
+            EK_1 = 1/2 * blocks[1].mass * blocks[1].velocity.x**2
+            EV_1 = 1/2 * springs[1].constant * (blocks[1].pos.x - eq1.x)**2
+            ek1.plot(pos=(t, EK_1))
+            ev1.plot(pos=(t, EV_1))
+            
+    t = t + dt
